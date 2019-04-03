@@ -1,32 +1,120 @@
 var inquirer = require('inquirer');
+var mysql = require('mysql');
+var Table = require('cli-table');
 
-function displayItems () {
-    //console.log ids, items and prices from products DB
+var connection = mysql.createConnection({
+  host: "localhost",
+  port: 8889,
+  user: "root",
+  password: "root",
+  database: "bamazon_db"
+});
+
+connection.connect(function(err) {
+  if (err) throw err;
+  console.log("Welcome to Bamazon!");
+  whatNext();
+});
+
+function whatNext() {
+  inquirer.prompt([
+    {
+      type: "list",
+      name: "wantToBuy",
+      message: "Are you shopping for succulents with us today?",
+      choices: ["I sure am!", "Not today."]
+    }
+  ]).then(function(answer) {
+    if (answer.wantToBuy === "I sure am!") {
+      console.log("Well, you've come to the right place! Here's what we have in stock today.")
+      displayProducts();
+    } else {
+      console.log("Maybe next time! Y'all come back now, ya hear?");
+      connection.end();
+    }
+  })
 };
 
-displayItems();
+function displayProducts() {
+  connection.query("SELECT * FROM products", function (err, res) {
+    if (err) throw err;
+    var table = new Table({
+      chars: {
+        'top': '═', 'top-mid': '╤', 'top-left': '╔', 'top-right': '╗'
+        , 'bottom': '═', 'bottom-mid': '╧', 'bottom-left': '╚', 'bottom-right': '╝'
+        , 'left': '║', 'left-mid': '╟', 'mid': '─', 'mid-mid': '┼'
+        , 'right': '║', 'right-mid': '╢', 'middle': '│'
+      },
+      head: ['ID','Name', 'Price']
+    });
+    for (var i = 0; i < res.length; i++) {
+        table.push([res[i].id, res[i].name, '$' + res[i].price]);
+    }
+    console.log(table.toString());
+    toBuy();
+  });
+};
 
-inquirer.prompt([
+function toBuy() {
+  inquirer.prompt([
+    {
+      type: "input",
+      name: "whichProduct",
+      message: "Which succulent would you like to take home today? Enter it's ID below.",
+    },
+    {
+      type: "input",
+      name: "numOfProducts",
+      message: "How many succulents would you like?"
+    }
+  ]).then(function(res) {
+    // console.log(res);
+    connection.query("SELECT * FROM products WHERE ?", 
+      {
+        id: res.whichProduct
+      }, 
+      function (err, response) {
+        if (err) throw err;
+        console.log(
+`You chose the ${response[0].name}. Gorgeous!`);
+        if (res.numOfProducts <= response[0].stock) {
+          console.log("It's all yours!");
+          var newStock = parseInt(response[0].stock) - parseInt(res.numOfProducts);
+          var totalPrice = parseInt(response[0].price) * parseInt(res.numOfProducts);
+          console.log("Your total today is $" + totalPrice + ".");
+          updateStock(res.whichProduct, newStock);
+        } else {
+          console.log("We don't have the plants to fill that order, though! Try again, please.")
+          whatNext();
+        }
+      }
+    )
+  })
+};
 
-  {
-    type: "list",
-    name: "whichProduct",
-    message: "Which succulent would you like to take home today?",
-    choices: ["1 (Burro's Tail)", "2 (Crown of Thorns)", "3 (Jade Plant)", "4 (Flaming Katy)", "5 (Aloe Vera)", "6 (Panda Plant)", "7 (Pincushion Cactus)", "8 (Roseum)", "9 (Snake Plant)", "10 (Zebra Plant)",]
-  },
+function updateStock(id, stock) {
+  connection.query(
+    "UPDATE products SET ? WHERE ?",
+    [{
+        stock: stock
+      },
+      {
+        id: id
+      }],
+    function(err, res) {
+      deleteEmptyStock();
+    }
+  )
+};
 
-  {
-    type: "input",
-    name: "numOfProducts",
-    message: "How many succulents would like?"
-  }
-
-]).then(function() {
-
-  //If there is sufficient stock to fill the order,
-  //Fill the order--
-  //Decrement the stock in the DB
-  //Show the customer the price of their order
-
-  //If not, console.log ("We don't have the plants to fill that order! Try again, please.")
- });
+function deleteEmptyStock() {
+  connection.query(
+    "DELETE FROM products WHERE ?",
+    {
+      stock: 0
+    },
+    function(err, res) {
+      whatNext();
+    }
+  );
+};
